@@ -1,0 +1,15 @@
+峻爸 AI Transcriber v3.8.2 CUDA Fix / Single EXE
+
+已完成（Linux 開發環境）：
+- Python 3.13 語法編譯檢查
+- CUDA DLL audit 模擬測試（必需檔缺少時失敗）
+- GitHub Actions workflow YAML 解析
+- 封裝根目錄必要來源檢查、ZIP CRC 檢查
+- 專案僅提供 Windows Single EXE 建置流程
+
+尚未實施：
+- GitHub Windows 原生建置：須上傳 ZIP 後執行 Actions
+- NVIDIA RTX 3060 Ti 實際 CUDA FP16 推論：須在使用者 Windows 電腦上操作 Settings 測試
+- Single EXE 的實際執行效能：須等 GPU 實機數據
+
+請勿將「來源測試通過」說成「已成功在 RTX 3060 Ti 跑完 GPU 推論」。

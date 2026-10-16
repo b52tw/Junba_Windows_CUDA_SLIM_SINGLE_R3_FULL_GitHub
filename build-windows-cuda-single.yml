@@ -1,0 +1,184 @@
+name: Build Junba Windows CUDA Slim - Single EXE only
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - '**.py'
+      - '**.spec'
+      - 'requirements.txt'
+      - 'hooks/**'
+      - 'tests/**'
+      - '.github/workflows/build-windows-cuda-single.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-cuda-single:
+    name: Windows CUDA Slim / cuDNN 9 Single EXE
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
+
+      - name: Source preflight
+        shell: pwsh
+        run: |
+          foreach ($path in @('main.py','requirements.txt','app/core/cuda_runtime.py','app/core/worker.py','app/ui/main_window.py','hooks/runtime_safe_windows.py','JunbaAITranscriber_onefile.spec')) {
+            if (!(Test-Path $path)) { throw "Missing source: $path" }
+          }
+          python -m compileall -q main.py app hooks
+          if ($LASTEXITCODE -ne 0) { throw 'Python compilation failed' }
+
+      - name: CUDA Slim source profile checks
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_cuda_slim_profile.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'CUDA Slim source profile check failed' }
+
+      - name: Install Python project and NVIDIA GPU runtime wheels
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          if ($LASTEXITCODE -ne 0) { throw 'pip setup failed' }
+          python -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Install Python dependencies failed' }
+          python -m pip install 'nvidia-cublas-cu12==12.4.5.8' 'nvidia-cudnn-cu12==9.5.1.17' 'nvidia-cuda-runtime-cu12==12.4.127'
+          if ($LASTEXITCODE -ne 0) { throw 'Install NVIDIA CUDA 12/cuDNN 9 wheels failed' }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'pip check failed' }
+          python -c "import importlib.util; assert all(importlib.util.find_spec(x) is None for x in ('openvino','openvino_genai','openvino_tokenizers')), 'OpenVINO unexpectedly installed in CUDA Slim build'"
+          if ($LASTEXITCODE -ne 0) { throw 'CUDA Slim environment includes OpenVINO' }
+          python -m pip freeze | Out-File -Encoding utf8 CUDA_BUILD_DEPENDENCIES.txt
+
+      - name: Verify bundled NVIDIA DLL sources
+        shell: pwsh
+        run: |
+          python -X utf8 -m tools.verify_cuda_dlls
+          if ($LASTEXITCODE -ne 0) { throw 'NVIDIA DLL preflight failed' }
+
+      - name: Build GPU-enabled Single EXE only
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean JunbaAITranscriber_onefile.spec
+          if ($LASTEXITCODE -ne 0) { throw 'PyInstaller build failed' }
+          if (!(Test-Path 'dist/Junba.exe')) { throw 'Single EXE not produced' }
+
+      # Crucial change: preserve the built executable BEFORE any runtime smoke test.
+      - name: Package and hash completed Single EXE
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path r | Out-Null
+          Copy-Item 'dist/Junba.exe' 'r/Junba-CUDA-Slim-Single.exe' -Force
+          $size = [math]::Round((Get-Item 'r/Junba-CUDA-Slim-Single.exe').Length / 1MB, 1)
+          Write-Host "Completed CUDA Slim Single EXE size: $size MB"
+          @(
+            "Profile: CUDA Slim (OpenVINO removed)"
+            "Single EXE size MB: $size"
+            "RTX CUDA inference is NOT validated on the GitHub runner."
+            "The EXE extracts bundled DLLs to a temporary directory on EVERY launch."
+            "Compare startup time and EXE size against the previous ~1.6GB build."
+          ) | Set-Content 'r/SIZE_REPORT.txt' -Encoding utf8
+          $sha = (Get-FileHash 'r/Junba-CUDA-Slim-Single.exe' -Algorithm SHA256).Hash
+          "SHA256 $sha  Junba-CUDA-Slim-Single.exe" | Set-Content 'r/SHA256.txt' -Encoding ascii
+          'GitHub-hosted runner has no NVIDIA GPU; verify actual CUDA inference on the user RTX PC.' | Set-Content 'r/GPU_TEST_REQUIRED.txt' -Encoding utf8
+          Copy-Item 'CUDA_BUILD_DEPENDENCIES.txt' 'r/CUDA_BUILD_DEPENDENCIES.txt' -Force
+          if (Test-Path 'r/CUDA_DLL_SOURCES.txt') { Write-Host 'CUDA DLL source report already created.' }
+
+      - name: Upload Single EXE immediately (before smoke tests)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Junba-Windows-CUDA-Slim-Single
+          path: |
+            r/Junba-CUDA-Slim-Single.exe
+            r/SHA256.txt
+            r/GPU_TEST_REQUIRED.txt
+            r/SIZE_REPORT.txt
+            r/CUDA_BUILD_DEPENDENCIES.txt
+            r/CUDA_DLL_SOURCES.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Bounded Single EXE smoke tests and GUI checks
+        continue-on-error: true
+        shell: pwsh
+        timeout-minutes: 9
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'r/Junba-CUDA-Slim-Single.exe').Path
+          $checks = @(
+            @{ Flag='--windowed-io-self-test'; Output=(Join-Path $pwd 'r/io.txt'); Timeout=120 },
+            @{ Flag='--ui-self-test'; Output=(Join-Path $pwd 'r/ui.txt'); Timeout=120 },
+            @{ Flag='--cuda-audit'; Output=(Join-Path $pwd 'r/cuda_audit.txt'); Timeout=120 }
+          )
+          $failures = @()
+          $messages = @()
+          foreach ($check in $checks) {
+            $flag = [string]$check.Flag
+            $outPath = [string]$check.Output
+            $seconds = [int]$check.Timeout
+            Write-Host "START $flag (timeout ${seconds}s)"
+            $process = $null
+            try {
+              $process = Start-Process -FilePath $exe -ArgumentList @($flag, $outPath) -PassThru
+              if (-not $process.WaitForExit($seconds * 1000)) {
+                try { $process.Kill($true) } catch { try { $process.Kill() } catch {} }
+                $failures += "TIMEOUT $flag after ${seconds}s"
+                $messages += "TIMEOUT $flag after ${seconds}s"
+                Write-Warning "TIMEOUT $flag"
+                continue
+              }
+              $code = $process.ExitCode
+              $messages += "EXIT $flag code=$code"
+              if ($code -ne 0) { $failures += "FAIL $flag exit=$code" }
+              if (Test-Path $outPath) {
+                $contents = Get-Content $outPath -Raw -ErrorAction SilentlyContinue
+                $messages += "OUTPUT $flag`n$contents"
+                if ($flag -eq '--cuda-audit' -and $contents -notmatch 'CUDA_AUDIT_OK') {
+                  $failures += 'CUDA DLL audit marker not present'
+                }
+              } else {
+                $failures += "FAIL $flag output file missing"
+                $messages += "OUTPUT MISSING $flag"
+              }
+            } catch {
+              $failures += "FAIL $flag exception: $_"
+              $messages += "ERROR $flag exception: $_"
+            } finally {
+              if ($null -ne $process) { $process.Dispose() }
+            }
+          }
+          if ($failures.Count -gt 0) {
+            $messages += 'FAILURES:'
+            $messages += $failures
+          } else {
+            $messages += 'ALL_BOUND_TESTS_PASSED'
+          }
+          $messages | Out-File -Encoding utf8 'r/CUDA_SELFTESTS.txt'
+          Get-Content 'r/CUDA_SELFTESTS.txt'
+          if ($failures.Count -gt 0) { Write-Warning 'Some smoke tests failed or timed out. EXE was uploaded; inspect diagnostics and test locally.' }
+
+      - name: Upload diagnostic report even if smoke tests fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Junba-Windows-CUDA-Diagnostics
+          path: |
+            r/CUDA_SELFTESTS.txt
+            r/io.txt
+            r/ui.txt
+            r/cuda_audit.txt
+            r/CUDA_DLL_SOURCES.txt
+          if-no-files-found: warn
+          retention-days: 30

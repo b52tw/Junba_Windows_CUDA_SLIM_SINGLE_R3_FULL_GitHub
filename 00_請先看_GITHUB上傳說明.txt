@@ -1,0 +1,33 @@
+Junba AI Transcriber v3.8.2｜重新封包版（Single EXE + Android APK）
+
+這一包已針對本次 GitHub Actions 失敗原因修正，Windows 不再建立 Portable。
+
+【本次已確認修正】
+1. main.py 在 ZIP 根目錄。
+2. requirements.txt 在 ZIP 根目錄。
+3. GitHub Actions 的 Windows 流程只產出 Single EXE：Junba.exe。
+4. 已移除 Windows Portable 建置 Job；不會再產出 Portable Artifact。
+5. setup-python 不再啟用 pip cache，避免 requirements.txt 若有上傳問題時在 preflight 之前就先失敗。
+6. Android build.gradle.kts 已加入 libc++_shared.so pickFirst，處理 whisper-android 與 ffmpeg-kit-audio 的 Native library 重複衝突。
+7. Android 仍保留 Whisper + Gemini 自動混合、API Key 安全儲存與 AI Studio 取得 Key 的功能。
+
+【上傳 GitHub 時】
+請把本 ZIP 解壓縮後「裡面的全部內容」上傳到 Repository 根目錄。
+解壓後第一層就必須直接看到：
+- main.py
+- requirements.txt
+- JunbaAITranscriber_onefile.spec
+- app/
+- android/
+- hooks/
+- packaging/
+- tests/
+- .github/
+
+不要只上傳資料夾，也不要漏掉根目錄檔案。
+
+【Actions 成功後會看到】
+- Junba-v382-Single  → Junba.exe + SHA256.txt
+- Junba-v382-APK     → Junba.apk + SHA256.txt
+
+不會再看到 Junba-v382-Portable。

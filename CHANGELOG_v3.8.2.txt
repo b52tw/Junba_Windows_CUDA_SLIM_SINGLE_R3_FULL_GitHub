@@ -1,0 +1,10 @@
+Junba AI Transcriber v3.8.2｜Repack Fix
+
+1. Windows 建置改為 Single EXE only，移除 GitHub Actions Portable job。
+2. Single EXE 固定輸出 dist/Junba.exe，Artifact：Junba-v382-Single。
+3. requirements.txt、main.py 明確保留於專案根目錄並加入 Source preflight。
+4. setup-python 取消 pip cache，避免 cache resolver 因缺 requirements.txt 提前中止。
+5. Android build.gradle.kts 新增 jniLibs pickFirst：**/libc++_shared.so，解決 whisper-android 與 ffmpeg-kit-audio 重複 Native runtime。
+6. Android Whisper + Gemini Hybrid、AI Studio 取得 Key、SecureKeyStore 儲存機制保留。
+7. 本重新封包 ZIP 改成「解壓後直接看到專案根目錄內容」，避免多一層資料夾造成 GitHub 上傳遺漏。
+8. build_windows.bat 改為只建置 Single EXE。
