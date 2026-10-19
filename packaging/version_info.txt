@@ -15,7 +15,7 @@ VSVersionInfo(
         '040404B0',
         [
           StringStruct('CompanyName', '峻爸'),
-          StringStruct('FileDescription', '峻爸 AI Transcriber CUDA Fix Single EXE'),
+          StringStruct('FileDescription', '峻爸 AI Transcriber CUDA Slim Single EXE'),
           StringStruct('FileVersion', '3.8.2.0'),
           StringStruct('InternalName', 'Junba_AI_Transcriber'),
           StringStruct('LegalCopyright', 'Copyright (c) 2026 峻爸'),

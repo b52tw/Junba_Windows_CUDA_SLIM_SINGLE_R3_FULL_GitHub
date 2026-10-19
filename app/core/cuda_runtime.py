@@ -90,11 +90,10 @@ def configure_cuda_dlls() -> list[str]:
             except OSError:
                 pass
     os.environ['PATH'] = os.pathsep.join(str(d) for d in paths) + os.pathsep + os.environ.get('PATH', '')
-    # Win32 LoadLibraryW commonly searches the process DLL directory as well.
-    # Use SetDllDirectoryW only on the dedicated onefile bundle, not arbitrary PATHs.
-    bundle = bundled_cuda_dir()
-    if bundle.is_dir():
-        ctypes.windll.kernel32.SetDllDirectoryW(str(bundle))
+    # R4: do NOT call SetDllDirectoryW here. It REPLACES the process-wide extra
+    # DLL search directory (which the PyInstaller bootloader or other libraries
+    # may rely on) instead of appending to it. add_dll_directory + PATH above,
+    # plus the explicit preloads below, are sufficient for CTranslate2.
     errors = []
     dlls = {p.name.lower(): p for d in paths for p in d.glob('*.dll')}
     for name in ('cudart64_12.dll', 'cublasLt64_12.dll', 'cublas64_12.dll'):

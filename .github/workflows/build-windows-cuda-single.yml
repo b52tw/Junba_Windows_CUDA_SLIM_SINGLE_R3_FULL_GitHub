@@ -3,7 +3,7 @@ name: Build Junba Windows CUDA Slim - Single EXE only
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches: [main, master, 'r4-*']
     paths:
       - '**.py'
       - '**.spec'
@@ -29,6 +29,8 @@ jobs:
         with:
           python-version: '3.11'
           architecture: 'x64'
+          cache: pip
+          cache-dependency-path: requirements.txt
 
       - name: Source preflight
         shell: pwsh
@@ -50,9 +52,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           if ($LASTEXITCODE -ne 0) { throw 'pip setup failed' }
-          python -m pip install -r requirements.txt
+          # R4: if constraints.txt exists (copy of a known-good CUDA_BUILD_DEPENDENCIES.txt),
+          # pin every package to that exact set so rebuilds are reproducible.
+          $constraint = @()
+          if (Test-Path 'constraints.txt') { $constraint = @('-c','constraints.txt'); Write-Host 'Using constraints.txt pins' }
+          python -m pip install -r requirements.txt @constraint
           if ($LASTEXITCODE -ne 0) { throw 'Install Python dependencies failed' }
-          python -m pip install 'nvidia-cublas-cu12==12.4.5.8' 'nvidia-cudnn-cu12==9.5.1.17' 'nvidia-cuda-runtime-cu12==12.4.127'
+          python -m pip install 'nvidia-cublas-cu12==12.4.5.8' 'nvidia-cudnn-cu12==9.5.1.17' 'nvidia-cuda-runtime-cu12==12.4.127' @constraint
           if ($LASTEXITCODE -ne 0) { throw 'Install NVIDIA CUDA 12/cuDNN 9 wheels failed' }
           python -m pip check
           if ($LASTEXITCODE -ne 0) { throw 'pip check failed' }
@@ -167,6 +173,18 @@ jobs:
           }
           $messages | Out-File -Encoding utf8 'r/CUDA_SELFTESTS.txt'
           Get-Content 'r/CUDA_SELFTESTS.txt'
+          # R4: surface results on the Actions run page (job stays green on purpose).
+          $summary = @('## Single EXE smoke tests', '')
+          if ($failures.Count -gt 0) {
+            $summary += ':warning: **Some smoke tests failed or timed out.** EXE was uploaded; see Junba-Windows-CUDA-Diagnostics.'
+            $summary += ''
+            foreach ($f in $failures) { $summary += "- $f"; Write-Host "::warning title=Smoke test::$f" }
+          } else {
+            $summary += ':white_check_mark: ALL_BOUND_TESTS_PASSED'
+          }
+          $summary += ''
+          $summary += 'GPU inference is NOT tested on GitHub runners; run the GPU test on your RTX PC.'
+          $summary | Out-File -Encoding utf8 -Append $env:GITHUB_STEP_SUMMARY
           if ($failures.Count -gt 0) { Write-Warning 'Some smoke tests failed or timed out. EXE was uploaded; inspect diagnostics and test locally.' }
 
       - name: Upload diagnostic report even if smoke tests fail

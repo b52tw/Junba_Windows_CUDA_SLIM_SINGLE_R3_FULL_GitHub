@@ -27,3 +27,17 @@ class CudaSlimProfileTests(unittest.TestCase):
     def test_windows_runtime_loads_cuda(self):
         hook = (ROOT / 'hooks/runtime_safe_windows.py').read_text(encoding='utf-8')
         self.assertIn('configure_cuda_dlls()', hook)
+
+
+class R4FixesTests(unittest.TestCase):
+    def test_no_set_dll_directory_override(self):
+        src = (ROOT / 'app/core/cuda_runtime.py').read_text(encoding='utf-8')
+        self.assertNotIn('kernel32.SetDllDirectoryW(', src)
+        self.assertIn('add_dll_directory', src)
+    def test_major_versions_capped(self):
+        req = (ROOT / 'requirements.txt').read_text(encoding='utf-8')
+        self.assertIn('ctranslate2>=4.5,<5', req)
+        self.assertIn('faster-whisper>=1.1,<2', req)
+    def test_step_summary_reported(self):
+        wf = (ROOT / '.github/workflows/build-windows-cuda-single.yml').read_text(encoding='utf-8')
+        self.assertIn('GITHUB_STEP_SUMMARY', wf)
